@@ -1,7 +1,7 @@
 import csv
 
-input_file = 'Downloads/Data Vis/Disasters_expanded_geocoded.csv'
-output_file = 'Downloads/Data Vis/disaster_coords_simplified.csv'
+input_file = 'E:/Data Vis/disasters_cleaned_expanded_geocoded.csv'
+output_file = 'E:/Data Vis/disaster_coords_simplified.csv'
 
 with open(input_file, 'r', encoding='utf-8') as infile, open(output_file, 'w', newline='', encoding='utf-8') as outfile:
     reader = csv.DictReader(infile)
