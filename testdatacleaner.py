@@ -4,65 +4,67 @@ from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 
 # Load original data
-df = pd.read_csv("public_emdat_custom_request_2025-04-28_e9726a26-897b-456f-9711-b082d849bed5.csv")  # Change to your actual filename
+df = pd.read_csv("E:/Data Vis/public_emdat_custom_request_2025-04-28_e9726a26-897b-456f-9711-b082d849bed5.csv", encoding="ISO-8859-1")
 
 # Setup geocoder
 geolocator = Nominatim(user_agent="cesium_location_mapper")
 geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
 
-# Define cleanup function
-def clean_location(raw_loc):
-    if pd.isna(raw_loc) or raw_loc.strip() == "":
+# Clean country names (remove anything in parentheses)
+df["Country"] = df["Country"].str.replace(r"\s*\(.*?\)", "", regex=True).str.strip()
+
+# Function to clean and split locations
+def split_locations(loc_str):
+    if pd.isna(loc_str) or not loc_str.strip():
         return []
 
-    # Lowercase "near" removal, and words like province, region etc
-    raw_loc = re.sub(r'\bnear\b', '', raw_loc, flags=re.IGNORECASE)
-    raw_loc = re.sub(r'\b(province|region|state|district|departments?|municipality|county|city|prefecture|area)\b', '', raw_loc, flags=re.IGNORECASE)
-    
-    # Remove anything in brackets (e.g., "(Jiangxi)")
-    raw_loc = re.sub(r'\([^)]*\)', '', raw_loc)
+    # Replace "and" with comma to separate into new rows
+    loc_str = re.sub(r'\band\b', ',', loc_str, flags=re.IGNORECASE)
 
-    # Normalize semicolons and commas to splits
-    locations = re.split(r'[;,]', raw_loc)
+    # Remove descriptive geography terms (add more as needed)
+    loc_str = re.sub(r'\b(provinces?|near|regon|districts?|departments?|municipalities|municipality|county|city|prefecture|areas?|regencies|regency|states?)\b', '', loc_str, flags=re.IGNORECASE)
 
-    # Strip whitespace and filter empty
-    cleaned = [loc.strip() for loc in locations if loc.strip()]
-    return cleaned
+    # Remove directional terms (e.g., NW, NE, SW, SE)
+    loc_str = re.sub(r'\b(northwest|northeast|southwest|northeast|NW|NE|SW|SE)\b', '', loc_str, flags=re.IGNORECASE)
 
-# Collect all exploded locations
+    # Remove anything in parentheses
+    loc_str = re.sub(r'\([^)]*\)', '', loc_str)
+
+    # Split into separate locations
+    locations = re.split(r'[;,]', loc_str)
+    return [loc.strip() for loc in locations if loc.strip()]
+
+# Expand rows
 expanded_rows = []
 
-for idx, row in df.iterrows():
-    base_info = row.to_dict()
-    cleaned_locations = clean_location(base_info.get("Location", ""))
-    
-    if not cleaned_locations:
-        # If no valid location, fallback to Country (if any)
-        if pd.notna(row.get("Country", "")):
-            cleaned_locations = [row["Country"]]
-        else:
-            continue  # Skip row with no valid place
+for _, row in df.iterrows():
+    base_data = row.to_dict()
+    locations = split_locations(row.get("Location", ""))
 
-    for loc in cleaned_locations:
-        new_row = base_info.copy()
-        new_row["Cleaned Location"] = loc
+    if not locations and pd.notna(row.get("Country", "")):
+        locations = [row["Country"]]
+
+    for loc in locations:
+        new_row = base_data.copy()
+        new_row["Location"] = loc
         expanded_rows.append(new_row)
 
-# Create a new DataFrame
+# Create new dataframe
 expanded_df = pd.DataFrame(expanded_rows)
 
-# Geocode each location
-def get_coords(place):
+# Geocoding using both Location and Country
+def get_coords(row):
+    location_str = f"{row['Location']}, {row['Country']}"
     try:
-        location = geocode(place)
+        location = geocode(location_str)
         if location:
             return pd.Series([location.latitude, location.longitude])
-    except:
-        pass
+    except Exception as e:
+        print(f"Geocoding failed for '{location_str}': {e}")
     return pd.Series([None, None])
 
-expanded_df[["Latitude", "Longitude"]] = expanded_df["Cleaned Location"].apply(get_coords)
+expanded_df[["Latitude", "Longitude"]] = expanded_df.apply(get_coords, axis=1)
 
 # Save result
-expanded_df.to_csv("disasters_expanded_geocoded.csv", index=False)
+expanded_df.to_csv("E:/Data Vis/disasters_expanded_geocoded.csv", index=False)
 print("✅ Saved geocoded results to disasters_expanded_geocoded.csv")
